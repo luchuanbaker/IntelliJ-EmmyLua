@@ -39,12 +39,12 @@ class LuaFileElementType : IStubFileElementType<LuaFileStub>(LuaLanguage.INSTANC
 
     // debug performance
     override fun parseContents(chameleon: ASTNode): ASTNode? {
+        val psi = chameleon.psi
         val t = System.currentTimeMillis()
         val contents = super.parseContents(chameleon)
-        if (LOG.isDebugEnabled) {
-            val dt = System.currentTimeMillis() - t
-            val psi = chameleon.psi
-            if (psi is LuaPsiFile) {
+        if (psi is LuaPsiFile) {
+            if (LOG.isDebugEnabled) {
+                val dt = System.currentTimeMillis() - t
                 val fileName = psi.name
                 println("$fileName : $dt")
                 LOG.debug("$fileName : $dt")

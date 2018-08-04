@@ -22,8 +22,8 @@ import com.intellij.psi.util.CachedValueProvider
 import com.intellij.psi.util.PsiTreeUtil
 import com.tang.intellij.lua.Constants
 import com.tang.intellij.lua.comment.LuaCommentUtil
-import com.tang.intellij.lua.comment.psi.LuaDocFieldDef
-import com.tang.intellij.lua.comment.psi.LuaDocReturnDef
+import com.tang.intellij.lua.comment.psi.LuaDocTagField
+import com.tang.intellij.lua.comment.psi.LuaDocTagReturn
 import com.tang.intellij.lua.ext.ILuaTypeInfer
 import com.tang.intellij.lua.ext.recursionGuard
 import com.tang.intellij.lua.psi.*
@@ -42,7 +42,7 @@ internal fun inferInner(element: LuaTypeGuessable, context: SearchContext): ITy 
         is LuaExpr -> inferExpr(element, context)
         is LuaParamNameDef -> element.infer(context)
         is LuaNameDef -> element.infer(context)
-        is LuaDocFieldDef -> element.infer()
+        is LuaDocTagField -> element.infer()
         is LuaTableField -> element.infer(context)
         is LuaPsiFile -> inferFile(element, context)
         else -> Ty.UNKNOWN
@@ -64,7 +64,7 @@ private fun inferReturnTyInner(owner: LuaFuncBodyOwner, searchContext: SearchCon
     if (owner is LuaCommentOwner) {
         val comment = LuaCommentUtil.findComment(owner)
         if (comment != null) {
-            val returnDef = PsiTreeUtil.findChildOfType(comment, LuaDocReturnDef::class.java)
+            val returnDef = PsiTreeUtil.findChildOfType(comment, LuaDocTagReturn::class.java)
             if (returnDef != null) {
                 //return returnDef.resolveTypeAt(searchContext.index)
                 return returnDef.type
@@ -132,7 +132,7 @@ private fun LuaNameDef.infer(context: SearchContext): ITy {
         val localDef = PsiTreeUtil.getParentOfType(this, LuaLocalDef::class.java)
         if (localDef != null) {
             //计算 expr 返回类型
-            if (Ty.isInvalid(type)) {
+            if (Ty.isInvalid(type) && !context.forStore) {
                 val nameList = localDef.nameList
                 val exprList = localDef.exprList
                 if (nameList != null && exprList != null) {
@@ -143,14 +143,16 @@ private fun LuaNameDef.infer(context: SearchContext): ITy {
             }
 
             //anonymous
-            if (type !is TyPrimitive)
+            if (type !is ITyPrimitive)
                 type = type.union(TyClass.createAnonymousType(this))
+            else if (type == Ty.TABLE)
+                type = TyClass.createAnonymousType(this)
         }
     }
     return type
 }
 
-private fun LuaDocFieldDef.infer(): ITy {
+private fun LuaDocTagField.infer(): ITy {
     val stub = stub
     if (stub != null)
         return stub.type
@@ -246,7 +248,8 @@ private fun resolveParamType(paramNameDef: LuaParamNameDef, context: SearchConte
                             val types = param.ty
                             var set: ITy = Ty.UNKNOWN
                             TyUnion.each(types) { set = set.union(it) }
-                            return set
+                            if (set != Ty.UNKNOWN)
+                                return set
                         }
                     }
                 }
@@ -267,36 +270,16 @@ private fun resolveParamType(paramNameDef: LuaParamNameDef, context: SearchConte
     if (paramOwner is LuaForBStat) {
         val exprList = paramOwner.exprList
         val callExpr = PsiTreeUtil.findChildOfType(exprList, LuaCallExpr::class.java)
-        val expr = callExpr?.expr
-        if (expr is LuaNameExpr) {
-            val paramIndex = paramOwner.getIndexFor(paramNameDef)
+        val paramIndex = paramOwner.getIndexFor(paramNameDef)
 
-            // ipairs && TyArray
-            if (expr.name == Constants.WORD_IPAIRS) {
-                if (paramIndex == 0)
-                    return Ty.NUMBER
-
-                val args = callExpr.args
-                if (args is LuaListArgs) {
-                    val argExpr = PsiTreeUtil.findChildOfType(args, LuaExpr::class.java)
-                    if (argExpr != null) {
-                        val set = argExpr.guessType(context)
-                        val tyArray = TyUnion.find(set, ITyArray::class.java)
-                        if (tyArray != null)
-                            return tyArray.base
-                    }
-                }
-            }
-
-            // iterator support
-            val type = callExpr.guessType(context)
-            if (type is ITyFunction) {
-                val returnTy = type.mainSignature.returnTy
-                if (returnTy is TyTuple) {
-                    return returnTy.list.getOrElse(paramIndex) { Ty.UNKNOWN }
-                } else if (paramIndex == 0) {
-                    return returnTy
-                }
+        // iterator support
+        val type = callExpr?.guessType(context)
+        if (type is ITyFunction) {
+            val returnTy = type.mainSignature.returnTy
+            if (returnTy is TyTuple) {
+                return returnTy.list.getOrElse(paramIndex) { Ty.UNKNOWN }
+            } else if (paramIndex == 0) {
+                return returnTy
             }
         }
     }
@@ -313,25 +296,10 @@ private fun resolveParamType(paramNameDef: LuaParamNameDef, context: SearchConte
      * guess type for p1
      */
     if (paramOwner is LuaClosureExpr) {
-        val p1 = paramOwner.parent as? LuaListArgs
-        val p2 = p1?.parent as? LuaCallExpr
-        if (p2 != null) {
-            val type = p2.guessParentType(context)
-            if (type is ITyFunction) {
-                val args = p2.args
-                if (args is LuaListArgs) {
-                    val closureIndex = args.getIndexFor(paramOwner)
-                    var sig = type.mainSignature
-                    val substitutor = p2.createSubstitutor(sig, context)
-                    if (substitutor != null) sig = sig.substitute(substitutor)
-
-                    val paramTy = sig.getParamTy(closureIndex)
-                    if (paramTy is ITyFunction) {
-                        val paramIndex = paramOwner.getIndexFor(paramNameDef)
-                        return paramTy.mainSignature.getParamTy(paramIndex)
-                    }
-                }
-            }
+        val shouldBe = paramOwner.shouldBe(context)
+        if (shouldBe is ITyFunction) {
+            val paramIndex = paramOwner.getIndexFor(paramNameDef)
+            return shouldBe.mainSignature.getParamTy(paramIndex)
         }
     }
     return Ty.UNKNOWN

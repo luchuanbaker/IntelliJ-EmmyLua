@@ -12,6 +12,12 @@
 -- License for the specific language governing permissions and limitations under
 -- the License.
 
+---
+--- The type *string* represents immutable sequences of bytes. Lua is 8-bit
+--- clean: strings can contain any 8-bit value, including embedded zeros
+--- ('`\0`'). Lua is also encoding-agnostic; it makes no assumptions about
+--- the contents of a string.
+---@class string
 string = {}
 
 ---
@@ -67,12 +73,12 @@ function string.dump(func, strip) end
 ---
 --- If the pattern has captures, then in a successful match the captured values
 --- are also returned, after the two indices.
----@overload fun(s:string, pattern:string):number|number|string
+---@overload fun(s:string, pattern:string):number, number, string
 ---@param s string
 ---@param pattern string
 ---@param init number
 ---@param plain boolean
----@return number|number|string
+---@return number, number, string
 function string.find(s, pattern, init, plain) end
 
 ---
@@ -134,7 +140,7 @@ function string.format(formatstring, ...) end
 --- an anchor, as this would prevent the iteration.
 ---@param s string
 ---@param pattern string
----@return fun():string|table
+---@return fun():string, table
 function string.gmatch(s, pattern) end
 
 ---
@@ -180,12 +186,12 @@ function string.gmatch(s, pattern) end
 --- `local t = {name="lua", version="5.2"}`
 --- `x = string.gsub("$name-$version.tar.gz", "%$(%w+)", t)`
 --- > x="lua-5.2.tar.gz"
----@overload fun(s:string, pattern:string, repl:string|fun()):string|number
+---@overload fun(s:string, pattern:string, repl:string|fun()):string, number
 ---@param s string
 ---@param pattern string
 ---@param repl string|fun()
 ---@param n number
----@return string|number
+---@return string, number
 function string.gsub(s, pattern, repl, n) end
 
 ---

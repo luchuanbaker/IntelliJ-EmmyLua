@@ -19,12 +19,13 @@ package com.tang.intellij.lua.ty
 import com.intellij.psi.stubs.StubInputStream
 import com.intellij.psi.stubs.StubOutputStream
 import com.intellij.util.Processor
-import com.tang.intellij.lua.Constants
 import com.tang.intellij.lua.comment.psi.LuaDocFunctionTy
 import com.tang.intellij.lua.psi.*
 import com.tang.intellij.lua.search.SearchContext
 import com.tang.intellij.lua.stubs.readParamInfoArray
+import com.tang.intellij.lua.stubs.readTyNullable
 import com.tang.intellij.lua.stubs.writeParamInfoArray
+import com.tang.intellij.lua.stubs.writeTyNullable
 
 interface IFunSignature {
     val colonCall: Boolean
@@ -33,6 +34,7 @@ interface IFunSignature {
     val displayName: String
     val paramSignature: String
     val tyParameters: Array<TyParameter>
+    val varargTy: ITy?
     fun substitute(substitutor: ITySubstitutor): IFunSignature
     fun subTypeOf(other: IFunSignature, context: SearchContext, strict: Boolean): Boolean
 }
@@ -51,7 +53,7 @@ fun IFunSignature.processArgs(thisTy: ITy?, colonStyle: Boolean, processor: (ind
     if (colonStyle && !colonCall) {
         pIndex++
     } else if (!colonStyle && colonCall) {
-        val pi = LuaParamInfo(Constants.WORD_SELF, thisTy ?: Ty.UNKNOWN)
+        val pi = LuaParamInfo.createSelf(thisTy)
         if (!processor(index++, pi)) return
     }
 
@@ -63,7 +65,7 @@ fun IFunSignature.processArgs(thisTy: ITy?, colonStyle: Boolean, processor: (ind
 fun IFunSignature.processParams(thisTy: ITy?, colonStyle: Boolean, processor: (index:Int, param: LuaParamInfo) -> Boolean) {
     var index = 0
     if (colonCall) {
-        val pi = LuaParamInfo(Constants.WORD_SELF, thisTy ?: Ty.UNKNOWN)
+        val pi = LuaParamInfo.createSelf(thisTy)
         if (!processor(index++, pi)) return
     }
 
@@ -87,8 +89,8 @@ fun IFunSignature.getParamTy(index: Int): ITy {
 }
 
 //eg. print(...)
-fun IFunSignature.hasVarArgs(): Boolean {
-    return params.lastOrNull()?.isVarArgs ?: false
+fun IFunSignature.hasVarargs(): Boolean {
+    return this.varargTy != null
 }
 
 fun IFunSignature.isGeneric() = tyParameters.isNotEmpty()
@@ -133,7 +135,7 @@ abstract class FunSignatureBase(override val colonCall: Boolean,
 
     override fun substitute(substitutor: ITySubstitutor): IFunSignature {
         val list = params.map { it.substitute(substitutor) }
-        return FunSignature(colonCall, returnTy.substitute(substitutor), list.toTypedArray())
+        return FunSignature(colonCall, returnTy.substitute(substitutor), varargTy?.substitute(substitutor), list.toTypedArray())
     }
 
     override fun subTypeOf(other: IFunSignature, context: SearchContext, strict: Boolean): Boolean {
@@ -149,6 +151,7 @@ abstract class FunSignatureBase(override val colonCall: Boolean,
 
 class FunSignature(colonCall: Boolean,
                    override val returnTy: ITy,
+                   override val varargTy: ITy?,
                    params: Array<LuaParamInfo>,
                    tyParameters: Array<TyParameter> = emptyArray()
 ) : FunSignatureBase(colonCall, params, tyParameters) {
@@ -166,20 +169,22 @@ class FunSignature(colonCall: Boolean,
         }
 
         fun create(colonCall: Boolean, functionTy: LuaDocFunctionTy): IFunSignature {
-            return FunSignature(colonCall, functionTy.returnType, initParams(functionTy))
+            return FunSignature(colonCall, functionTy.returnType, functionTy.varargParam?.type, initParams(functionTy))
         }
 
         fun serialize(sig: IFunSignature, stream: StubOutputStream) {
             stream.writeBoolean(sig.colonCall)
             Ty.serialize(sig.returnTy, stream)
+            stream.writeTyNullable(sig.varargTy)
             stream.writeParamInfoArray(sig.params)
         }
 
         fun deserialize(stream: StubInputStream): IFunSignature {
             val colonCall = stream.readBoolean()
             val ret = Ty.deserialize(stream)
+            val varargTy = stream.readTyNullable()
             val params = stream.readParamInfoArray()
-            return FunSignature(colonCall, ret, params)
+            return FunSignature(colonCall, ret, varargTy, params)
         }
     }
 }
@@ -213,6 +218,16 @@ fun ITyFunction.findPerfectSignature(nArgs: Int): IFunSignature {
         true
     })
     return sgi ?: mainSignature
+}
+
+fun ITyFunction.findPerfectSignature(call: LuaCallExpr): IFunSignature {
+    val n = call.argList.size
+    // 是否是 inst:method() 被用为 inst.method(self) 形式
+    val isInstanceMethodUsedAsStaticMethod = isColonCall && call.isMethodDotCall
+    if (isInstanceMethodUsedAsStaticMethod)
+        return findPerfectSignature(n - 1)
+    val isStaticMethodUsedAsInstanceMethod = !isColonCall && call.isMethodColonCall
+    return findPerfectSignature(if(isStaticMethodUsedAsInstanceMethod) n + 1 else n)
 }
 
 abstract class TyFunction : Ty(TyKind.Function), ITyFunction {
@@ -286,6 +301,9 @@ class TyPsiFunction(private val colonCall: Boolean, val psi: LuaFuncBodyOwner, f
 
                 returnTy
             }
+
+            override val varargTy: ITy?
+                get() = psi.varargType
         }
     }
 

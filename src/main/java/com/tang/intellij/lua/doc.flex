@@ -49,6 +49,9 @@ ID=[:jletter:] ([:jletterdigit:]|\.)*
 AT=@
 //三个-以上
 DOC_DASHES = --+
+//Strings
+DOUBLE_QUOTED_STRING=\"([^\\\"]|\\\S|\\[\r\n])*\"?  //\"([^\\\"\r\n]|\\[^\r\n])*\"?
+SINGLE_QUOTED_STRING='([^\\\']|\\\S|\\[\r\n])*'?    //'([^\\'\r\n]|\\[^\r\n])*'?
 
 %state xTAG
 %state xTAG_WITH_ID
@@ -61,6 +64,9 @@ DOC_DASHES = --+
 %state xFIELD
 %state xFIELD_ID
 %state xGENERIC
+%state xALIAS
+%state xDOUBLE_QUOTED_STRING
+%state xSINGLE_QUOTED_STRING
 
 %%
 
@@ -72,27 +78,34 @@ DOC_DASHES = --+
     .                          { yybegin(xCOMMENT_STRING); yypushback(yylength()); }
 }
 
-<xTAG, xTAG_WITH_ID, xTAG_NAME, xPARAM, xTYPE_REF, xCLASS, xCLASS_EXTEND, xFIELD, xFIELD_ID, xCOMMENT_STRING, xGENERIC> {
+<xTAG, xTAG_WITH_ID, xTAG_NAME, xPARAM, xTYPE_REF, xCLASS, xCLASS_EXTEND, xFIELD, xFIELD_ID, xCOMMENT_STRING, xGENERIC, xALIAS> {
     {EOL}                      { yybegin(YYINITIAL);return com.intellij.psi.TokenType.WHITE_SPACE;}
     {LINE_WS}+                 { return com.intellij.psi.TokenType.WHITE_SPACE; }
 }
 
 <xTAG_NAME> {
-    "field"                    { yybegin(xFIELD); return TAG_FIELD; }
-    "param"                    { yybegin(xPARAM); return TAG_PARAM; }
-    "class"                    { yybegin(xCLASS); return TAG_CLASS; }
-    "module"                   { yybegin(xCLASS); return TAG_MODULE; }
-    "return"                   { beginType(); return TAG_RETURN; }
-    "type"                     { beginType(); return TAG_TYPE;}
-    "overload"                 { beginType(); return TAG_OVERLOAD; }
-    "private"                  { return TAG_PRIVATE; }
-    "protected"                { return TAG_PROTECTED; }
-    "public"                   { return TAG_PUBLIC; }
-    "language"                 { yybegin(xTAG_WITH_ID); return TAG_LANGUAGE;}
-    "generic"                  { yybegin(xGENERIC); return TAG_GENERIC; }
-    "see"                      { yybegin(xTAG); return TAG_SEE; }
+    "field"                    { yybegin(xFIELD); return TAG_NAME_FIELD; }
+    "param"                    { yybegin(xPARAM); return TAG_NAME_PARAM; }
+    "vararg"                   { yybegin(xPARAM); return TAG_NAME_VARARG; }
+    "class"                    { yybegin(xCLASS); return TAG_NAME_CLASS; }
+    "module"                   { yybegin(xCLASS); return TAG_NAME_MODULE; }
+    "return"                   { beginType(); return TAG_NAME_RETURN; }
+    "type"                     { beginType(); return TAG_NAME_TYPE;}
+    "overload"                 { beginType(); return TAG_NAME_OVERLOAD; }
+    "private"                  { return TAG_NAME_PRIVATE; }
+    "protected"                { return TAG_NAME_PROTECTED; }
+    "public"                   { return TAG_NAME_PUBLIC; }
+    "language"                 { yybegin(xTAG_WITH_ID); return TAG_NAME_LANGUAGE;}
+    "generic"                  { yybegin(xGENERIC); return TAG_NAME_GENERIC; }
+    "see"                      { yybegin(xTAG); return TAG_NAME_SEE; }
+    "alias"                    { yybegin(xALIAS); return TAG_NAME_ALIAS; }
     {ID}                       { yybegin(xCOMMENT_STRING); return TAG_NAME; }
     [^]                        { return com.intellij.psi.TokenType.BAD_CHARACTER; }
+}
+
+<xALIAS> {
+    {ID}                       { beginType(); return ID; }
+    [^]                        { yybegin(YYINITIAL); yypushback(yylength()); }
 }
 
 <xGENERIC> {
@@ -136,9 +149,20 @@ DOC_DASHES = --+
     ")"                        { _typeLevel--; _typeReq = false; return RPAREN; }
     "{"                        { _typeLevel++; return LCURLY; }
     "}"                        { _typeLevel--; _typeReq = false; return RCURLY; }
+    "\""                       { yybegin(xDOUBLE_QUOTED_STRING); yypushback(yylength()); }
+    "'"                        { yybegin(xSINGLE_QUOTED_STRING); yypushback(yylength()); }
     "[]"                       { _typeReq = false; return ARR; }
     "fun"                      { return FUN; }
+    "vararg"                   { _typeReq = true; return VARARG; }
     "..."|{ID}                 { if (_typeReq || _typeLevel > 0) { _typeReq = false; return ID; } else { yybegin(xCOMMENT_STRING); yypushback(yylength()); } }
+}
+
+<xDOUBLE_QUOTED_STRING> {
+    {DOUBLE_QUOTED_STRING}    { yybegin(xTYPE_REF); return STRING_LITERAL; }
+}
+
+<xSINGLE_QUOTED_STRING> {
+    {SINGLE_QUOTED_STRING}    { yybegin(xTYPE_REF); return STRING_LITERAL; }
 }
 
 <xTAG> {

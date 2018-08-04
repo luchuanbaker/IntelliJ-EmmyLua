@@ -39,6 +39,7 @@ enum class TyKind {
     Void,
     Tuple,
     GenericParam,
+    StringLiteral
 }
 enum class TyPrimitiveKind {
     String,
@@ -65,13 +66,20 @@ interface ITy : Comparable<ITy> {
 
     fun union(ty: ITy): ITy
 
+    @Deprecated("use `displayName` instead")
     fun createTypeString(): String
 
     fun subTypeOf(other: ITy, context: SearchContext, strict: Boolean): Boolean
 
     fun getSuperClass(context: SearchContext): ITy?
 
+    fun visitSuper(searchContext: SearchContext, processor: Processor<ITyClass>)
+
     fun substitute(substitutor: ITySubstitutor): ITy
+
+    fun each(fn: (ITy) -> Unit) {
+        TyUnion.each(this, fn)
+    }
 
     fun eachTopClass(fn: Processor<ITyClass>)
 
@@ -91,6 +99,9 @@ val ITy.isAnonymous: Boolean
 private val ITy.worth: Float get() {
     var value = 10f
     when(this) {
+        is ITyArray, is ITyGeneric -> value = 80f
+        is ITyPrimitive -> value = 70f
+        is ITyFunction -> value = 60f
         is ITyClass -> {
             value = when {
                 this is TyTable -> 9f
@@ -99,9 +110,6 @@ private val ITy.worth: Float get() {
                 else -> 90f
             }
         }
-        is ITyArray, is ITyGeneric -> value = 80f
-        is TyPrimitive -> value = 70f
-        is ITyFunction -> value = 60f
     }
     return value
 }
@@ -163,6 +171,12 @@ abstract class Ty(override val kind: TyKind) : ITy {
         return null
     }
 
+    override fun visitSuper(searchContext: SearchContext, processor: Processor<ITyClass>) {
+        val superType = getSuperClass(searchContext) as? ITyClass ?: return
+        if (processor.process(superType))
+            superType.visitSuper(searchContext, processor)
+    }
+
     override fun compareTo(other: ITy): Int {
         return other.worth.compareTo(worth)
     }
@@ -192,7 +206,7 @@ abstract class Ty(override val kind: TyKind) : ITy {
         val UNKNOWN = TyUnknown()
         val VOID = TyVoid()
         val BOOLEAN = TyPrimitive(TyPrimitiveKind.Boolean, "boolean")
-        val STRING = TyPrimitive(TyPrimitiveKind.String, "string")
+        val STRING = TyPrimitiveClass(TyPrimitiveKind.String, "string")
         val NUMBER = TyPrimitive(TyPrimitiveKind.Number, "number")
         val TABLE = TyPrimitive(TyPrimitiveKind.Table, "table")
         val FUNCTION = TyPrimitive(TyPrimitiveKind.Function, "function")
@@ -250,14 +264,14 @@ abstract class Ty(override val kind: TyKind) : ITy {
                     stream.writeName(ty.name)
                     stream.writeName(ty.superClassName)
                 }
+                is ITyPrimitive -> {
+                    stream.writeByte(ty.primitiveKind.ordinal)
+                }
                 is ITyClass -> {
                     stream.writeName(ty.className)
                     stream.writeName(ty.varName)
                     stream.writeName(ty.superClassName)
                     stream.writeName(ty.aliasName)
-                }
-                is TyPrimitive -> {
-                    stream.writeByte(ty.primitiveKind.ordinal)
                 }
                 is TyUnion -> {
                     stream.writeByte(ty.size)
@@ -272,6 +286,7 @@ abstract class Ty(override val kind: TyKind) : ITy {
                     stream.writeByte(ty.list.size)
                     ty.list.forEach { serialize(it, stream) }
                 }
+                is TyStringLiteral -> stream.writeUTF(ty.content)
             }
         }
 
@@ -330,19 +345,10 @@ abstract class Ty(override val kind: TyKind) : ITy {
                     val base = StringRef.toString(stream.readName())
                     TyParameter(name, base)
                 }
+                TyKind.StringLiteral -> TyStringLiteral(stream.readUTF())
                 else -> TyUnknown()
             }
         }
-    }
-}
-
-class TyPrimitive(val primitiveKind: TyPrimitiveKind, override val displayName: String) : Ty(TyKind.Primitive) {
-    override fun equals(other: Any?): Boolean {
-        return other is TyPrimitive && other.primitiveKind == primitiveKind
-    }
-
-    override fun hashCode(): Int {
-        return primitiveKind.hashCode()
     }
 }
 
@@ -475,23 +481,20 @@ class TyUnion : Ty(TyKind.Union) {
         }
 
         fun getPerfectClass(ty: ITy): ITyClass? {
-            var tc: ITyClass? = null
+            var clazz: ITyClass? = null
             var anonymous: ITyClass? = null
             var global: ITyClass? = null
             process(ty) {
                 if (it is ITyClass) {
-                    if (it.isAnonymous)
-                        anonymous = it
-                    else if (it.isGlobal)
-                        global = it
-                    else {
-                        tc = it
-                        return@process false
+                    when {
+                        it.isAnonymous -> anonymous = it
+                        it.isGlobal -> global = it
+                        else -> clazz = it
                     }
                 }
-                true
+                clazz == null
             }
-            return tc ?: global ?: anonymous
+            return clazz ?: global ?: anonymous
         }
     }
 }
@@ -543,5 +546,37 @@ class TyTuple(val list: List<ITy>) : Ty(TyKind.Tuple) {
 
     override fun acceptChildren(visitor: ITyVisitor) {
         list.forEach { it.accept(visitor) }
+    }
+
+    override fun subTypeOf(other: ITy, context: SearchContext, strict: Boolean): Boolean {
+        if (other is TyTuple && other.size == size) {
+            for (i in 0 until size) {
+                if (!list[i].subTypeOf(other.list[i], context, strict)) {
+                    return false
+                }
+            }
+            return true
+        }
+        return false
+    }
+
+    override fun hashCode(): Int {
+        var hash = 0
+        for (ty in list) {
+            hash = hash * 31 + ty.hashCode()
+        }
+        return hash
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (other is TyTuple && other.size == size) {
+            for (i in 0 until size) {
+                if (list[i] != other.list[i]) {
+                    return false
+                }
+            }
+            return true
+        }
+        return super.equals(other)
     }
 }

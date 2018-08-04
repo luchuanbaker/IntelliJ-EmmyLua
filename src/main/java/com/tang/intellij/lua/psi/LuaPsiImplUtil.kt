@@ -34,6 +34,7 @@ import com.intellij.psi.util.ParameterizedCachedValue
 import com.intellij.psi.util.PsiTreeUtil
 import com.tang.intellij.lua.comment.LuaCommentUtil
 import com.tang.intellij.lua.comment.psi.LuaDocAccessModifier
+import com.tang.intellij.lua.comment.psi.LuaDocTagVararg
 import com.tang.intellij.lua.comment.psi.api.LuaComment
 import com.tang.intellij.lua.ext.recursionGuard
 import com.tang.intellij.lua.lang.LuaIcons
@@ -196,27 +197,6 @@ fun guessParentType(callExpr: LuaCallExpr, context: SearchContext): ITy {
 }
 
 /**
- * 找出函数体
- * @param callExpr call expr
- * *
- * @return LuaFuncBodyOwner
- */
-fun resolveFuncBodyOwner(callExpr: LuaCallExpr, context: SearchContext): LuaFuncBodyOwner? {
-    return recursionGuard(callExpr, Computable {
-        var owner: LuaFuncBodyOwner? = null
-        val expr = callExpr.expr
-        if (expr is LuaIndexExpr) {
-            val resolve = resolve(expr, context)
-            if (resolve is LuaFuncBodyOwner)
-                owner = resolve
-        } else if (expr is LuaNameExpr) {
-            owner = resolveFuncBodyOwner(expr, context)
-        }
-        owner
-    })
-}
-
-/**
  * 获取第一个字符串参数
  * @param callExpr callExpr
  * *
@@ -373,6 +353,25 @@ fun guessReturnType(owner: LuaFuncBodyOwner, searchContext: SearchContext): ITy 
     return inferReturnTy(owner, searchContext)
 }
 
+fun getVarargTy(owner: LuaFuncBodyOwner): ITy? {
+    if (owner is StubBasedPsiElementBase<*>) {
+        val stub = owner.stub
+        if (stub is LuaFuncBodyOwnerStub<*>) {
+            return stub.varargTy
+        }
+    }
+    owner.funcBody?.ellipsis?.let {
+        var ret: ITy? = null
+        if (owner is LuaCommentOwner) {
+            val varargDef = owner.comment?.findTag(LuaDocTagVararg::class.java)
+            ret = varargDef?.type
+        }
+        return ret ?: Ty.UNKNOWN
+    }
+
+    return null
+}
+
 fun getParams(owner: LuaFuncBodyOwner): Array<LuaParamInfo> {
     if (owner is StubBasedPsiElementBase<*>) {
         val stub = owner.stub
@@ -387,6 +386,10 @@ private fun getParamsInner(funcBodyOwner: LuaFuncBodyOwner): Array<LuaParamInfo>
     var comment: LuaComment? = null
     if (funcBodyOwner is LuaCommentOwner) {
         comment = LuaCommentUtil.findComment(funcBodyOwner)
+    } else {
+        val commentOwner = PsiTreeUtil.getParentOfType(funcBodyOwner, LuaCommentOwner::class.java)
+        if (commentOwner != null)
+            comment = LuaCommentUtil.findComment(commentOwner)
     }
 
     val paramNameList = funcBodyOwner.paramNameDefList
@@ -404,13 +407,6 @@ private fun getParamsInner(funcBodyOwner: LuaFuncBodyOwner): Array<LuaParamInfo>
                 }
             }
             list.add(paramInfo)
-        }
-        //check varArgs
-        funcBodyOwner.funcBody?.ellipsis?.let {
-            val args = LuaParamInfo()
-            args.name = "..."
-            args.isVarArgs = true
-            list.add(args)
         }
         return list.toTypedArray()
     }

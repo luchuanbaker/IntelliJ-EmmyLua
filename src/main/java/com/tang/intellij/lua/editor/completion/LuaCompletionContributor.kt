@@ -28,6 +28,7 @@ import com.tang.intellij.lua.lang.LuaIcons
 import com.tang.intellij.lua.lang.LuaLanguage
 import com.tang.intellij.lua.project.LuaSettings
 import com.tang.intellij.lua.psi.*
+import com.tang.intellij.lua.refactoring.LuaRefactoringUtil
 
 /**
 
@@ -46,13 +47,15 @@ class LuaCompletionContributor : CompletionContributor() {
 
         extend(CompletionType.BASIC, SHOW_REQUIRE_PATH, RequirePathCompletionProvider())
 
+        extend(CompletionType.BASIC, LuaStringArgHistoryProvider.STRING_ARG, LuaStringArgHistoryProvider())
+
         //提示全局函数,local变量,local函数
         extend(CompletionType.BASIC, IN_NAME_EXPR, LocalAndGlobalCompletionProvider(LocalAndGlobalCompletionProvider.ALL))
 
         extend(CompletionType.BASIC, IN_CLASS_METHOD_NAME, LocalAndGlobalCompletionProvider(LocalAndGlobalCompletionProvider.VARS))
 
         extend(CompletionType.BASIC, GOTO, object : CompletionProvider<CompletionParameters>(){
-            override fun addCompletions(parameters: CompletionParameters, context: ProcessingContext?, resultSet: CompletionResultSet) {
+            override fun addCompletions(parameters: CompletionParameters, context: ProcessingContext, resultSet: CompletionResultSet) {
                 LuaPsiTreeUtil.walkUpLabel(parameters.position) {
                     val name = it.name
                     if (name != null) {
@@ -148,7 +151,7 @@ class LuaCompletionContributor : CompletionContributor() {
             val wordsScanner = LanguageFindUsages.INSTANCE.forLanguage(LuaLanguage.INSTANCE).wordsScanner
             wordsScanner?.processWords(parameters.editor.document.charsSequence) {
                 val word = it.baseText.subSequence(it.start, it.end).toString()
-                if (session.addWord(word)) {
+                if (word.length > 2 && LuaRefactoringUtil.isLuaIdentifier(word) && session.addWord(word)) {
                     session.resultSet.addElement(PrioritizedLookupElement.withPriority(LookupElementBuilder
                             .create(word)
                             .withIcon(LuaIcons.WORD), -1.0)

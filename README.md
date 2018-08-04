@@ -1,6 +1,7 @@
 # EmmyLua for IntelliJ IDEA
 
 [![Online EmmyLua Doc](https://img.shields.io/badge/emmy-doc-46BC99.svg?style=flat-square)](https://emmylua.github.io)
+[![在线文档](https://img.shields.io/badge/emmy-中文-46BC99.svg?style=flat-square)](https://emmylua.github.io/zh_CN)
 [![Jetbrains plugin](https://img.shields.io/jetbrains/plugin/d/9768-emmylua.svg?style=flat-square)](https://plugins.jetbrains.com/plugin/9768-emmylua)
 [![Jetbrains plugin](https://img.shields.io/jetbrains/plugin/v/9768-emmylua.svg?style=flat-square)](https://plugins.jetbrains.com/plugin/9768-emmylua)
 [![donate](https://img.shields.io/badge/donate-emmy-FF69B4.svg?style=flat-square)](https://emmylua.github.io/donate.html)
@@ -105,6 +106,7 @@ QQ交流群：`29850775`
 - [**@dsmgit** dsmgit](https://github.com/dsmgit)
 - [**@Perryvw** Perry van Wesel](https://github.com/Perryvw)
 - [**@mqualizz** Marco Qualizza](https://github.com/mqualizz)
+- [**@taigacon** taigacon](https://github.com/taigacon)
 - [**@ice1000** Tesla Ice Zhang](https://github.com/ice1000)
 - [**@LiamYao** Yao](https://github.com/LiamYao)
 - [**@luchuanbaker** luchuanbaker](https://github.com/luchuanbaker)

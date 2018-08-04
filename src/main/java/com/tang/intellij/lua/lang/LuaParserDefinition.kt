@@ -83,7 +83,8 @@ class LuaParserDefinition : ParserDefinition {
                 || type === LuaElementType.DOC_TABLE_FIELD_DEF
                 || type === LuaElementType.CLASS_DEF
                 || type === LuaElementType.CLASS_FIELD_DEF
-                || type === LuaElementType.TYPE_DEF) {
+                || type === LuaElementType.TYPE_DEF
+                || type === LuaElementType.DOC_ALIAS) {
             LuaDocTypes.Factory.createElement(node)
         } else LuaTypes.Factory.createElement(node)
     }
@@ -139,22 +140,25 @@ class LuaParserDefinition : ParserDefinition {
                 LuaTypes.TRUE
         )
         val DOC_TAG_TOKENS = TokenSet.create(
-                LuaDocTypes.TAG_PARAM,
-                LuaDocTypes.TAG_RETURN,
-                LuaDocTypes.TAG_CLASS,
-                LuaDocTypes.TAG_MODULE,
-                LuaDocTypes.TAG_TYPE,
-                LuaDocTypes.TAG_FIELD,
-                LuaDocTypes.TAG_LANGUAGE,
-                LuaDocTypes.TAG_OVERLOAD,
-                LuaDocTypes.TAG_PRIVATE,
-                LuaDocTypes.TAG_PROTECTED,
-                LuaDocTypes.TAG_PUBLIC,
-                LuaDocTypes.TAG_SEE,
-                LuaDocTypes.TAG_GENERIC
+                LuaDocTypes.TAG_NAME_PARAM,
+                LuaDocTypes.TAG_NAME_RETURN,
+                LuaDocTypes.TAG_NAME_CLASS,
+                LuaDocTypes.TAG_NAME_MODULE,
+                LuaDocTypes.TAG_NAME_TYPE,
+                LuaDocTypes.TAG_NAME_FIELD,
+                LuaDocTypes.TAG_NAME_LANGUAGE,
+                LuaDocTypes.TAG_NAME_OVERLOAD,
+                LuaDocTypes.TAG_NAME_PRIVATE,
+                LuaDocTypes.TAG_NAME_PROTECTED,
+                LuaDocTypes.TAG_NAME_PUBLIC,
+                LuaDocTypes.TAG_NAME_SEE,
+                LuaDocTypes.TAG_NAME_GENERIC,
+                LuaDocTypes.TAG_NAME_VARARG,
+                LuaDocTypes.TAG_NAME_ALIAS
         )
         val DOC_KEYWORD_TOKENS = TokenSet.create(
-                LuaDocTypes.FUN
+                LuaDocTypes.FUN,
+                LuaDocTypes.VARARG
         )
         val FILE = LuaFileElementType()
     }
@@ -206,11 +210,12 @@ fun createToken(string: String): IElementType {
 
 fun createDocType(string: String): IElementType {
     return when (string) {
-        "CLASS_DEF" -> LuaElementType.CLASS_DEF
-        "FIELD_DEF" -> LuaElementType.CLASS_FIELD_DEF
+        "TAG_CLASS" -> LuaElementType.CLASS_DEF
+        "TAG_FIELD" -> LuaElementType.CLASS_FIELD_DEF
         "TABLE_DEF" -> LuaElementType.DOC_TABLE_DEF
         "TABLE_FIELD" -> LuaElementType.DOC_TABLE_FIELD_DEF
-        else -> if ("TYPE_DEF" == string) LuaElementType.TYPE_DEF else LuaDocElementType(string)
+        "TAG_ALIAS" -> LuaElementType.DOC_ALIAS
+        else -> if ("TAG_TYPE" == string) LuaElementType.TYPE_DEF else LuaDocElementType(string)
     }
 
 }

@@ -17,6 +17,7 @@
 package com.tang.intellij.lua.psi
 
 import com.intellij.extapi.psi.StubBasedPsiElementBase
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.util.Key
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.CachedValue
@@ -25,14 +26,67 @@ import com.intellij.psi.util.CachedValuesManager
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.util.Processor
 import com.tang.intellij.lua.comment.LuaCommentUtil
-import com.tang.intellij.lua.comment.psi.LuaDocClassDef
+import com.tang.intellij.lua.comment.psi.LuaDocTagClass
 import com.tang.intellij.lua.comment.psi.LuaDocGenericDef
-import com.tang.intellij.lua.comment.psi.LuaDocOverloadDef
+import com.tang.intellij.lua.comment.psi.LuaDocTagOverload
 import com.tang.intellij.lua.comment.psi.api.LuaComment
 import com.tang.intellij.lua.lang.type.LuaString
 import com.tang.intellij.lua.search.SearchContext
 import com.tang.intellij.lua.stubs.LuaFuncBodyOwnerStub
+import com.tang.intellij.lua.stubs.index.LuaClassMemberIndex
 import com.tang.intellij.lua.ty.*
+
+/**
+ * 1.
+ * ---@type MyClass
+ * local a = {}
+ *
+ * this table should be `MyClass`
+ *
+ * 2.
+ *
+ * ---@param callback fun(sender: any, type: string):void
+ * local function addListener(type, callback)
+ *      ...
+ * end
+ *
+ * addListener(function() end)
+ *
+ * this closure should be `fun(sender: any, type: string):void`
+ */
+fun LuaExpr.shouldBe(context: SearchContext): ITy {
+    val p1 = parent
+    if (p1 is LuaExprList) {
+        val p2 = p1.parent
+        if (p2 is LuaAssignStat) {
+            val receiver = p2.varExprList.getExprAt(0)
+            if (receiver != null)
+                return infer(receiver, context)
+        } else if (p2 is LuaLocalDef) {
+            val receiver = p2.nameList?.nameDefList?.getOrNull(0)
+            if (receiver != null)
+                return infer(receiver, context)
+        }
+    } else if (p1 is LuaListArgs) {
+        val p2 = p1.parent
+        if (p2 is LuaCallExpr) {
+            val idx = p1.getIndexFor(this)
+            val fTy = infer(p2.expr, context)
+            var ret: ITy = Ty.UNKNOWN
+            fTy.each {
+                if (it is ITyFunction) {
+                    var sig = it.mainSignature
+                    val substitutor = p2.createSubstitutor(sig, context)
+                    if (substitutor != null) sig = sig.substitute(substitutor)
+
+                    ret = ret.union(sig.getParamTy(idx))
+                }
+            }
+            return ret
+        }
+    }
+    return Ty.UNKNOWN
+}
 
 /**
  * 获取所在的位置
@@ -168,7 +222,7 @@ val LuaFuncBodyOwner.overloads: Array<IFunSignature> get() {
     if (this is LuaCommentOwner) {
         val comment = comment
         if (comment != null) {
-            val children = PsiTreeUtil.findChildrenOfAnyType(comment, LuaDocOverloadDef::class.java)
+            val children = PsiTreeUtil.findChildrenOfAnyType(comment, LuaDocTagOverload::class.java)
             val colonCall = this is LuaClassMethodDef && !this.isStatic
             children.forEach {
                 val fty = it.functionTy
@@ -201,6 +255,7 @@ enum class LuaLiteralKind {
     Bool,
     Number,
     Nil,
+    Varargs,
     Unknown;
 
     companion object {
@@ -221,6 +276,7 @@ val LuaLiteralExpr.kind: LuaLiteralKind get() {
         LuaTypes.FALSE -> LuaLiteralKind.Bool
         LuaTypes.NIL -> LuaLiteralKind.Nil
         LuaTypes.NUMBER -> LuaLiteralKind.Number
+        LuaTypes.ELLIPSIS -> LuaLiteralKind.Varargs
         else -> LuaLiteralKind.Unknown
     }
 }
@@ -242,18 +298,24 @@ val LuaLiteralExpr.stringValue: String get() {
 
 val LuaLiteralExpr.boolValue: Boolean get() = text == "true"
 
-val LuaLiteralExpr.numberValue: Float get() = text.toFloat()
+val LuaLiteralExpr.numberValue: Float get() {
+    val t = text
+    if (t.startsWith("0x", true)) {
+        return "${t}p0".toFloat()
+    }
+    return text.toFloat()
+}
 
 val LuaComment.docTy: ITy? get() {
-    return this.typeDef?.type
+    return this.tagType?.type
 }
 
 val LuaComment.ty: ITy? get() {
-    val cls = classDef?.type
-    return cls ?: typeDef?.type
+    val cls = tagClass?.type
+    return cls ?: tagType?.type
 }
 
-val LuaDocClassDef.aliasName: String? get() {
+val LuaDocTagClass.aliasName: String? get() {
     val owner = LuaCommentUtil.findOwner(this)
     when (owner) {
         is LuaAssignStat -> {
@@ -285,7 +347,8 @@ val LuaIndexExpr.docTy: ITy? get() {
 }
 
 val LuaIndexExpr.prefixExpr: LuaExpr get() {
-    return firstChild as LuaExpr
+    return PsiTreeUtil.getStubChildOfType(this, LuaExpr::class.java)!!
+    //return firstChild as LuaExpr
 }
 
 val LuaExpr.assignStat: LuaAssignStat? get() {
@@ -377,4 +440,23 @@ val LuaBinaryExpr.left: LuaExpr? get() {
 val LuaBinaryExpr.right: LuaExpr? get() {
     val list = PsiTreeUtil.getStubChildrenOfTypeAsList(this, LuaExpr::class.java)
     return list.getOrNull(1)
+}
+
+fun LuaClassMethod.findOverridingMethod(context: SearchContext): LuaClassMethod? {
+    val methodName = name ?: return null
+
+    val type = guessClassType(context) ?: return null
+    var superType = type.getSuperClass(context)
+
+    while (superType != null && superType is TyClass) {
+        ProgressManager.checkCanceled()
+        val superTypeName = superType.className
+        val superMethod = LuaClassMemberIndex.findMethod(superTypeName, methodName, context)
+        if (superMethod != null) {
+            return superMethod
+        }
+        superType = superType.getSuperClass(context)
+    }
+
+    return null
 }

@@ -22,7 +22,6 @@ import com.intellij.lang.annotation.Annotator
 import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.util.Key
 import com.intellij.psi.PsiElement
-import com.intellij.psi.search.searches.ReferencesSearch
 import com.tang.intellij.lua.Constants
 import com.tang.intellij.lua.comment.psi.*
 import com.tang.intellij.lua.highlighting.LuaHighlightingData
@@ -64,7 +63,8 @@ class LuaAnnotator : Annotator {
 
         override fun visitExprStat(o: LuaExprStat) {
             if (o.expr !is LuaCallExpr) {
-                myHolder!!.createErrorAnnotation(o, "syntax error")
+                if (o.containingFile !is LuaExprCodeFragment)
+                    myHolder!!.createErrorAnnotation(o, "syntax error")
             } else super.visitExprStat(o)
         }
 
@@ -125,17 +125,8 @@ class LuaAnnotator : Annotator {
         }
 
         override fun visitParamNameDef(o: LuaParamNameDef) {
-            if (o.textMatches(Constants.WORD_UNDERLINE))
-                return
-
-            val search = ReferencesSearch.search(o, o.useScope)
-            if (search.findFirst() == null) {
-                createInfoAnnotation(o, "Unused parameter : \"${o.name}\"")
-                //annotation.setTextAttributes(CodeInsightColors.WEAK_WARNING_ATTRIBUTES);
-            } else {
-                val annotation = createInfoAnnotation(o, "Parameter : \"${o.name}\"")
-                annotation.setTextAttributes(LuaHighlightingData.PARAMETER)
-            }
+            val annotation = createInfoAnnotation(o, "Parameter : \"${o.name}\"")
+            annotation.textAttributes = LuaHighlightingData.PARAMETER
         }
 
         override fun visitNameExpr(o: LuaNameExpr) {
@@ -227,10 +218,17 @@ class LuaAnnotator : Annotator {
     }
 
     internal inner class LuaDocElementVisitor : LuaDocVisitor() {
-        override fun visitClassDef(o: LuaDocClassDef) {
-            super.visitClassDef(o)
+        override fun visitTagClass(o: LuaDocTagClass) {
+            super.visitTagClass(o)
             val annotation = createInfoAnnotation(o.id, null)
             annotation.textAttributes = LuaHighlightingData.CLASS_NAME
+        }
+
+        override fun visitTagAlias(o: LuaDocTagAlias) {
+            super.visitTagAlias(o)
+            val id = o.id ?: return
+            val annotation = createInfoAnnotation(id, null)
+            annotation.textAttributes = LuaHighlightingData.TYPE_ALIAS
         }
 
         override fun visitClassNameRef(o: LuaDocClassNameRef) {
@@ -238,8 +236,8 @@ class LuaAnnotator : Annotator {
             annotation.textAttributes = LuaHighlightingData.CLASS_REFERENCE
         }
 
-        override fun visitFieldDef(o: LuaDocFieldDef) {
-            super.visitFieldDef(o)
+        override fun visitTagField(o: LuaDocTagField) {
+            super.visitTagField(o)
             val id = o.nameIdentifier
             if (id != null) {
                 val annotation = createInfoAnnotation(id, null)

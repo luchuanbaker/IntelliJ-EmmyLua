@@ -9,7 +9,7 @@ import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.util.PsiTreeUtil;
 import static com.tang.intellij.lua.comment.psi.LuaDocTypes.*;
 import com.intellij.extapi.psi.StubBasedPsiElementBase;
-import com.tang.intellij.lua.stubs.LuaDocTableFieldDefStub;
+import com.tang.intellij.lua.stubs.LuaDocTableFieldStub;
 import com.tang.intellij.lua.comment.psi.*;
 import com.tang.intellij.lua.psi.Visibility;
 import com.tang.intellij.lua.search.SearchContext;
@@ -17,17 +17,17 @@ import com.tang.intellij.lua.ty.ITy;
 import com.intellij.psi.stubs.IStubElementType;
 import com.intellij.psi.tree.IElementType;
 
-public class LuaDocTableFieldImpl extends StubBasedPsiElementBase<LuaDocTableFieldDefStub> implements LuaDocTableField {
+public class LuaDocTableFieldImpl extends StubBasedPsiElementBase<LuaDocTableFieldStub> implements LuaDocTableField {
 
-  public LuaDocTableFieldImpl(LuaDocTableFieldDefStub stub, IStubElementType type) {
+  public LuaDocTableFieldImpl(@NotNull LuaDocTableFieldStub stub, @NotNull IStubElementType type) {
     super(stub, type);
   }
 
-  public LuaDocTableFieldImpl(ASTNode node) {
+  public LuaDocTableFieldImpl(@NotNull ASTNode node) {
     super(node);
   }
 
-  public LuaDocTableFieldImpl(LuaDocTableFieldDefStub stub, IElementType type, ASTNode node) {
+  public LuaDocTableFieldImpl(LuaDocTableFieldStub stub, IElementType type, ASTNode node) {
     super(stub, type, node);
   }
 
@@ -53,7 +53,7 @@ public class LuaDocTableFieldImpl extends StubBasedPsiElementBase<LuaDocTableFie
   }
 
   @NotNull
-  public ITy guessParentType(SearchContext context) {
+  public ITy guessParentType(@NotNull SearchContext context) {
     return LuaDocPsiImplUtilKt.guessParentType(this, context);
   }
 
@@ -63,7 +63,7 @@ public class LuaDocTableFieldImpl extends StubBasedPsiElementBase<LuaDocTableFie
   }
 
   @NotNull
-  public PsiElement setName(String newName) {
+  public PsiElement setName(@NotNull String newName) {
     return LuaDocPsiImplUtilKt.setName(this, newName);
   }
 
@@ -78,7 +78,7 @@ public class LuaDocTableFieldImpl extends StubBasedPsiElementBase<LuaDocTableFie
   }
 
   @NotNull
-  public ITy guessType(SearchContext context) {
+  public ITy guessType(@NotNull SearchContext context) {
     return LuaDocPsiImplUtilKt.guessType(this, context);
   }
 
